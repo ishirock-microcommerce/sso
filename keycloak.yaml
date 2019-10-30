@@ -1,0 +1,114 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels:
+    app: keycloak
+spec:
+  selector:
+    matchLabels:
+      app: keycloak
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      initContainers:
+        - name: init-ds
+          image: busybox
+          command:
+            - '/bin/sh'
+            - '-c'
+            - |
+                while true
+                do
+                  rt=$(nc -z -w 1 mysql 3306)
+                  if [ $? -eq 0 ]; then
+                    echo "DB is UP"
+                    break
+                  fi
+                  echo "DB is not yet reachable;sleep for 10s before retry"
+                  sleep 10
+                done
+      containers:
+      - name: keycloak
+        image: jboss/keycloak
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+        - name: https
+          containerPort: 8443
+        env:
+        - name: KEYCLOAK_USER
+          value: "admin"
+        - name: KEYCLOAK_PASSWORD
+          value: "admin123!"
+        - name: PROXY_ADDRESS_FORWARDING
+          value: "true"
+        - name: DB_VENDOR
+          value: "mysql"
+        - name: DB_ADDR
+          value: "mysql"
+        readinessProbe:
+          httpGet:
+            path: /auth/realms/master
+            port: 8080
+--- 
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  labels:
+    app: keycloak
+spec:
+  ports:
+    - port: 8080
+      name: http
+      targetPort: 8080
+    - port: 8443
+      name: https
+      targetPort: 8443
+  selector:
+    app: keycloak
+  type: ClusterIP
+--- 
+apiVersion: certmanager.k8s.io/v1alpha1
+kind: Certificate
+metadata:
+  name: sso-tls-secret
+spec:
+  secretName: sso-tls-secret
+  dnsNames:
+  - sso.e8c78187f8d844399c4d.southeastasia.aksapp.io
+  acme:
+    config:
+    - http01:
+        ingressClass: nginx
+      domains:
+      - sso.e8c78187f8d844399c4d.southeastasia.aksapp.io
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: keycloak
+  annotations:
+    kubernetes.io/ingress.class: addon-http-application-routing
+spec:
+  tls:
+  - hosts:
+    - sso.e8c78187f8d844399c4d.southeastasia.aksapp.io
+    secretName: sso-tls-secret
+  rules:
+  - host: sso.e8c78187f8d844399c4d.southeastasia.aksapp.io
+    http:
+      paths:
+      - backend:
+          serviceName: keycloak
+          servicePort: 8080  

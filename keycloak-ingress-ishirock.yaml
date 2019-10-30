@@ -1,0 +1,39 @@
+--- # Certificate for Ingress
+apiVersion: certmanager.k8s.io/v1alpha1
+kind: Certificate
+metadata:
+  name: sso-ishirock
+spec:
+  secretName: sso-ishirock
+  dnsNames:
+  - sso.ishirock.com
+  acme:
+    config:
+    - http01:
+        ingressClass: nginx
+      domains:
+      - sso.ishirock.com
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: sso-ishirock
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    certmanager.k8s.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+  - hosts:
+    - sso.ishirock.com
+    secretName: sso-ishirock
+  rules:
+  - host: sso.ishirock.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: keycloak
+          servicePort: 8080
